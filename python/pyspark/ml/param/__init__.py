@@ -15,19 +15,13 @@
 # limitations under the License.
 #
 import array
-import sys
-if sys.version > '3':
-    basestring = str
-    xrange = range
-    unicode = str
-
 from abc import ABCMeta
 import copy
-import numpy as np
 
+import numpy as np
 from py4j.java_gateway import JavaObject
 
-from pyspark.ml.linalg import DenseVector, Vector
+from pyspark.ml.linalg import DenseVector, Vector, Matrix
 from pyspark.ml.util import Identifiable
 
 
@@ -76,8 +70,6 @@ class Param(object):
 
 class TypeConverters(object):
     """
-    .. note:: DeveloperApi
-
     Factory methods for common type conversion functions for `Param.typeConverter`.
 
     .. versionadded:: 2.0.0
@@ -95,12 +87,12 @@ class TypeConverters(object):
     @staticmethod
     def _can_convert_to_list(value):
         vtype = type(value)
-        return vtype in [list, np.ndarray, tuple, xrange, array.array] or isinstance(value, Vector)
+        return vtype in [list, np.ndarray, tuple, range, array.array] or isinstance(value, Vector)
 
     @staticmethod
     def _can_convert_to_string(value):
         vtype = type(value)
-        return isinstance(value, basestring) or vtype in [np.unicode_, np.string_, np.str_]
+        return isinstance(value, str) or vtype in [np.unicode_, np.string_, np.str_]
 
     @staticmethod
     def identity(value):
@@ -116,7 +108,7 @@ class TypeConverters(object):
         """
         if type(value) == list:
             return value
-        elif type(value) in [np.ndarray, tuple, xrange, array.array]:
+        elif type(value) in [np.ndarray, tuple, range, array.array]:
             return list(value)
         elif isinstance(value, Vector):
             return list(value.toArray())
@@ -133,6 +125,16 @@ class TypeConverters(object):
             if all(map(lambda v: TypeConverters._is_numeric(v), value)):
                 return [float(v) for v in value]
         raise TypeError("Could not convert %s to list of floats" % value)
+
+    @staticmethod
+    def toListListFloat(value):
+        """
+        Convert a value to list of list of floats, if possible.
+        """
+        if TypeConverters._can_convert_to_list(value):
+            value = TypeConverters.toList(value)
+            return [TypeConverters.toListFloat(v) for v in value]
+        raise TypeError("Could not convert %s to list of list of floats" % value)
 
     @staticmethod
     def toListInt(value):
@@ -170,6 +172,15 @@ class TypeConverters(object):
         raise TypeError("Could not convert %s to vector" % value)
 
     @staticmethod
+    def toMatrix(value):
+        """
+        Convert a value to a MLlib Matrix, if possible.
+        """
+        if isinstance(value, Matrix):
+            return value
+        raise TypeError("Could not convert %s to matrix" % value)
+
+    @staticmethod
     def toFloat(value):
         """
         Convert a value to a float, if possible.
@@ -194,12 +205,10 @@ class TypeConverters(object):
         """
         Convert a value to a string, if possible.
         """
-        if isinstance(value, basestring):
+        if isinstance(value, str):
             return value
-        elif type(value) in [np.string_, np.str_]:
+        elif type(value) in [np.string_, np.str_, np.unicode_]:
             return str(value)
-        elif type(value) == np.unicode_:
-            return unicode(value)
         else:
             raise TypeError("Could not convert %s to string type" % type(value))
 
@@ -214,15 +223,13 @@ class TypeConverters(object):
             raise TypeError("Boolean Param requires value of type bool. Found %s." % type(value))
 
 
-class Params(Identifiable):
+class Params(Identifiable, metaclass=ABCMeta):
     """
     Components that take parameters. This also provides an internal
     param map to store parameter values attached to the instance.
 
     .. versionadded:: 1.3.0
     """
-
-    __metaclass__ = ABCMeta
 
     def __init__(self):
         super(Params, self).__init__()
@@ -375,6 +382,17 @@ class Params(Identifiable):
         that._defaultParamMap = {}
         return self._copyValues(that, extra)
 
+    def set(self, param, value):
+        """
+        Sets a parameter in the embedded param map.
+        """
+        self._shouldOwn(param)
+        try:
+            value = param.typeConverter(value)
+        except ValueError as e:
+            raise ValueError('Invalid param value given for param "%s". %s' % (param.name, e))
+        self._paramMap[param] = value
+
     def _shouldOwn(self, param):
         """
         Validates that the input param belongs to this Params instance.
@@ -422,7 +440,7 @@ class Params(Identifiable):
             self._paramMap[p] = value
         return self
 
-    def _clear(self, param):
+    def clear(self, param):
         """
         Clears a param from the param map if it has been explicitly set.
         """
@@ -454,8 +472,16 @@ class Params(Identifiable):
         :return: the target instance with param values copied
         """
         paramMap = self._paramMap.copy()
-        if extra is not None:
-            paramMap.update(extra)
+        if isinstance(extra, dict):
+            for param, value in extra.items():
+                if isinstance(param, Param):
+                    paramMap[param] = value
+                else:
+                    raise TypeError("Expecting a valid instance of Param, but received: {}"
+                                    .format(param))
+        elif extra is not None:
+            raise TypeError("Expecting a dict, but received an object of type {}."
+                            .format(type(extra)))
         for param in self.params:
             # copy default params
             if param in self._defaultParamMap and to.hasParam(param.name):
@@ -474,7 +500,7 @@ class Params(Identifiable):
         :return: same instance, but with the uid and Param.parent values
                  updated, including within param maps
         """
-        newUid = unicode(newUid)
+        newUid = str(newUid)
         self.uid = newUid
         newDefaultParamMap = dict()
         newParamMap = dict()

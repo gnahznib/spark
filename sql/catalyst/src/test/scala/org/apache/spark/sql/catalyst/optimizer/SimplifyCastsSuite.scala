@@ -42,9 +42,12 @@ class SimplifyCastsSuite extends PlanTest {
 
   test("nullable element to non-nullable element array cast") {
     val input = LocalRelation('a.array(ArrayType(IntegerType, true)))
-    val plan = input.select('a.cast(ArrayType(IntegerType, false)).as("casted")).analyze
+    val attr = input.output.head
+    val plan = input.select(attr.cast(ArrayType(IntegerType, false)).as("casted"))
     val optimized = Optimize.execute(plan)
-    comparePlans(optimized, plan)
+    // Though cast from `ArrayType(IntegerType, true)` to `ArrayType(IntegerType, false)` is not
+    // allowed, here we just ensure that `SimplifyCasts` rule respect the plan.
+    comparePlans(optimized, plan, checkAnalysis = false)
   }
 
   test("non-nullable value map to nullable value map cast") {
@@ -58,10 +61,13 @@ class SimplifyCastsSuite extends PlanTest {
 
   test("nullable value map to non-nullable value map cast") {
     val input = LocalRelation('m.map(MapType(StringType, StringType, true)))
-    val plan = input.select('m.cast(MapType(StringType, StringType, false))
-      .as("casted")).analyze
+    val attr = input.output.head
+    val plan = input.select(attr.cast(MapType(StringType, StringType, false))
+      .as("casted"))
     val optimized = Optimize.execute(plan)
-    comparePlans(optimized, plan)
+    // Though cast from `MapType(StringType, StringType, true)` to
+    // `MapType(StringType, StringType, false)` is not allowed, here we just ensure that
+    // `SimplifyCasts` rule respect the plan.
+    comparePlans(optimized, plan, checkAnalysis = false)
   }
 }
-

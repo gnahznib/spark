@@ -17,10 +17,11 @@
 
 package org.apache.spark.sql.execution.streaming
 
+import java.net.URI
+
 import org.apache.hadoop.fs.{FileStatus, Path}
 import org.json4s.NoTypeHints
 import org.json4s.jackson.Serialization
-import org.json4s.jackson.Serialization.{read, write}
 
 import org.apache.spark.sql.SparkSession
 import org.apache.spark.sql.internal.SQLConf
@@ -47,7 +48,8 @@ case class SinkFileStatus(
     action: String) {
 
   def toFileStatus: FileStatus = {
-    new FileStatus(size, isDir, blockReplication, blockSize, modificationTime, new Path(path))
+    new FileStatus(
+      size, isDir, blockReplication, blockSize, modificationTime, new Path(new URI(path)))
   }
 }
 
@@ -94,19 +96,9 @@ class FileStreamSinkLog(
   require(defaultCompactInterval > 0,
     s"Please set ${SQLConf.FILE_SINK_LOG_COMPACT_INTERVAL.key} (was $defaultCompactInterval) " +
       "to a positive value.")
-
-  override def compactLogs(logs: Seq[SinkFileStatus]): Seq[SinkFileStatus] = {
-    val deletedFiles = logs.filter(_.action == FileStreamSinkLog.DELETE_ACTION).map(_.path).toSet
-    if (deletedFiles.isEmpty) {
-      logs
-    } else {
-      logs.filter(f => !deletedFiles.contains(f.path))
-    }
-  }
 }
 
 object FileStreamSinkLog {
   val VERSION = 1
-  val DELETE_ACTION = "delete"
   val ADD_ACTION = "add"
 }
